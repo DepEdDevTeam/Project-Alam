@@ -1,0 +1,4 @@
+CREATE POLICY "Admins view all profiles"
+ON public.profiles
+FOR SELECT
+USING (public.has_role(auth.uid(), 'admin'::app_role));

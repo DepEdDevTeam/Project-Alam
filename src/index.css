@@ -1,0 +1,241 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Project ALAM design system. All colors HSL. */
+@layer base {
+  :root {
+    /* DepEd palette */
+    --background: 0 0% 100%;
+    --foreground: 215 60% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 60% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 60% 12%;
+
+    /* DepEd Blue #003366 */
+    --primary: 210 100% 20%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 210 90% 35%;
+
+    /* DepEd Yellow #FDB913 */
+    --secondary: 43 98% 53%;
+    --secondary-foreground: 215 60% 12%;
+
+    /* DepEd Red #ED1C24 */
+    --destructive: 358 85% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 20% 40%;
+
+    --accent: 43 98% 53%;
+    --accent-foreground: 215 60% 12%;
+
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+    --ring: 210 100% 20%;
+
+    --radius: 0.75rem;
+
+    /* Chat-specific */
+    --chat-bubble: 213 60% 10%;       /* dark navy #0a1929 */
+    --chat-bubble-foreground: 210 40% 96%; /* slate-100 */
+    --chat-user-bubble: 210 100% 20%;
+    --chat-user-bubble-foreground: 0 0% 100%;
+    --chat-surface: 210 50% 98%;
+    --chat-surface-accent: 43 98% 53%;
+
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(210 100% 20%) 0%, hsl(210 90% 30%) 50%, hsl(213 60% 10%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(43 98% 53%) 0%, hsl(38 95% 48%) 100%);
+    --gradient-radial: radial-gradient(ellipse at top, hsl(210 100% 25% / 0.15), transparent 60%);
+
+    /* Shadows */
+    --shadow-elegant: 0 10px 30px -10px hsl(210 100% 20% / 0.25);
+    --shadow-glow: 0 0 60px hsl(43 98% 53% / 0.35);
+    --shadow-card: 0 2px 12px -4px hsl(215 60% 12% / 0.08);
+
+    --sidebar-background: 213 60% 10%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 43 98% 53%;
+    --sidebar-primary-foreground: 215 60% 12%;
+    --sidebar-accent: 213 50% 16%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 213 50% 18%;
+    --sidebar-ring: 43 98% 53%;
+  }
+
+  .dark {
+    --background: 215 52% 7%;
+    --foreground: 210 40% 96%;
+
+    --card: 214 44% 10%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 214 44% 10%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 210 92% 32%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 210 90% 48%;
+
+    --secondary: 43 96% 56%;
+    --secondary-foreground: 215 60% 12%;
+
+    --muted: 214 38% 14%;
+    --muted-foreground: 213 19% 70%;
+
+    --accent: 43 96% 56%;
+    --accent-foreground: 215 60% 12%;
+
+    --destructive: 358 85% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 22%;
+    --input: 214 32% 22%;
+    --ring: 43 98% 53%;
+
+    --chat-bubble: 213 45% 13%;
+    --chat-bubble-foreground: 210 40% 96%;
+    --chat-user-bubble: 210 92% 28%;
+    --chat-surface: 215 52% 7%;
+    --chat-surface-accent: 43 96% 56%;
+    --shadow-card: 0 16px 48px -32px hsl(0 0% 0% / 0.75);
+    --shadow-elegant: 0 18px 60px -28px hsl(43 98% 53% / 0.32);
+    --gradient-hero: linear-gradient(135deg, hsl(210 90% 64%) 0%, hsl(210 92% 42%) 48%, hsl(43 96% 56%) 100%);
+    --gradient-radial: radial-gradient(ellipse at top, hsl(210 90% 40% / 0.22), transparent 62%);
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    transition: background-color 180ms ease, color 180ms ease;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  .container-chat {
+    @apply mx-auto w-[95%] md:w-[90%] max-w-6xl;
+  }
+  .deped-gradient-text {
+    background: var(--gradient-hero);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .pulse-dot {
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+  .chat-shell-bg {
+    background:
+      linear-gradient(180deg, hsl(var(--chat-surface)) 0%, hsl(var(--background)) 42%, hsl(var(--background)) 100%),
+      linear-gradient(90deg, hsl(var(--primary) / 0.05), transparent 32%, hsl(var(--secondary) / 0.08));
+  }
+  .deped-message-frame {
+    box-shadow:
+      inset 3px 0 0 hsl(var(--secondary) / 0.95),
+      var(--shadow-card);
+  }
+  .official-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-card/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-card backdrop-blur;
+  }
+  .voice-orb {
+    @apply relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-primary/10 text-primary shadow-card;
+  }
+  .voice-orb::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 9999px;
+    background: conic-gradient(from 180deg, hsl(var(--secondary) / 0.92), hsl(var(--primary) / 0.8), hsl(var(--secondary) / 0.92));
+    opacity: 0;
+    filter: blur(10px);
+    transition: opacity 180ms ease;
+  }
+  .voice-orb-active::before {
+    opacity: 0.55;
+    animation: voice-orb-spin 3s linear infinite;
+  }
+  .voice-orb-muted {
+    @apply border-muted bg-muted/50 text-muted-foreground;
+  }
+  .voice-orb-muted::before {
+    opacity: 0;
+    animation: none;
+  }
+  .voice-bar {
+    width: 3px;
+    border-radius: 9999px;
+    background: hsl(var(--muted-foreground) / 0.34);
+    transform-origin: center;
+    transition: background-color 180ms ease, opacity 180ms ease;
+  }
+  .voice-bar-active {
+    background: hsl(var(--secondary) / 0.88);
+    animation: voice-bar-dance 980ms ease-in-out infinite;
+  }
+  .voice-bar-speaking {
+    background: hsl(var(--primary-glow) / 0.9);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes voice-orb-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes voice-bar-dance {
+  0%, 100% { transform: scaleY(0.42); opacity: 0.55; }
+  45% { transform: scaleY(1.28); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb-active::before,
+  .voice-bar-active {
+    animation: none;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--sidebar-border) / 0.6) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--sidebar-border) / 0.5);
+    border-radius: 9999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--sidebar-foreground) / 0.4);
+  }
+  .scrollbar-thin::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
