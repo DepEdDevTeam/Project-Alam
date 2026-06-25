@@ -682,16 +682,16 @@ const Chat = () => {
 
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 border-b border-border/80 bg-card/85 backdrop-blur-xl flex items-center justify-between px-4 md:px-6 shadow-sm">
-          <div className="flex items-center gap-2 md:hidden pl-12"><Logo /></div>
+        <header className="deped-header-shell h-16 backdrop-blur-xl flex items-center justify-between px-4 md:px-6 shadow-sm">
+          <div className="flex items-center gap-2 md:hidden pl-12"><Logo variant="light" /></div>
           <div className="hidden md:flex items-center gap-4">
-            <Link to="/" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <Link to="/" className="text-sm text-white/80 hover:text-white inline-flex items-center gap-1">
               <ChevronLeft className="h-4 w-4" /> Home
             </Link>
-            <div className="h-7 w-px bg-border" />
+            <div className="h-7 w-px bg-white/20" />
             <div className="flex items-center gap-3">
               <img src={depedLogo} alt="DepEd seal" className="h-9 w-9 object-contain" />
-              <div className="leading-tight">
+              <div className="leading-tight text-white">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   ALAM Chat
                   <span className="official-chip hidden lg:inline-flex">
@@ -699,7 +699,7 @@ const Chat = () => {
                     DepEd-aligned
                   </span>
                 </div>
-                <div className="text-xs text-muted-foreground">Education data assistant for cited answers</div>
+                <div className="text-xs text-white/70">Education data assistant for cited answers</div>
               </div>
             </div>
           </div>
@@ -710,6 +710,7 @@ const Chat = () => {
               onClick={toggleTheme}
               aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
               title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+              className="text-white hover:bg-white/10 hover:text-white"
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>

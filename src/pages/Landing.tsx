@@ -21,8 +21,8 @@ const Landing = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Nav */}
-      <header className="sticky top-0 z-40 border-b border-primary/20 bg-primary/95 backdrop-blur-xl dark:border-white/10 dark:bg-card/88">
-        <div className="container-chat flex items-center justify-between h-16">
+      <header className="deped-header-shell sticky top-0 z-40 backdrop-blur-xl">
+        <div className="container-chat relative z-10 flex items-center justify-between h-16">
           <Logo variant="light" />
           <nav className="flex items-center gap-2">
             <a href="#capabilities" className="hidden md:inline text-sm text-white/80 hover:text-white transition px-3 py-2">Capabilities</a>
