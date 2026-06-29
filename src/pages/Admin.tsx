@@ -161,6 +161,7 @@ const useDashboardStats = () => {
 };
 
 const useAdminUsers = () => {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const loadUsers = async () => {
     const [{ data: profiles }, { data: roles }] = await Promise.all([
@@ -176,11 +177,40 @@ const useAdminUsers = () => {
   useEffect(() => { loadUsers(); }, []);
   const updateRole = (id: string, role: Role) => setUsers((current) => current.map((user) => (user.id === id ? { ...user, role } : user)));
   const saveRoles = async () => {
-    for (const u of users) {
-      await supabase.from("user_roles").delete().eq("user_id", u.id);
-      await supabase.from("user_roles").insert({ user_id: u.id, role: roleValue(u.role) as any });
+    if (!users.some((entry) => entry.role === "Super Admin")) {
+      toast.error("Keep at least one Super Admin assigned before saving.");
+      return;
     }
-    toast.success("Role changes saved");
+
+    const saveOrder = [...users].sort((left, right) => {
+      if (left.id === currentUser?.id) return 1;
+      if (right.id === currentUser?.id) return -1;
+      return 0;
+    });
+
+    try {
+      for (const entry of saveOrder) {
+        const nextRole = roleValue(entry.role);
+
+        const { error: upsertError } = await supabase
+          .from("user_roles")
+          .upsert({ user_id: entry.id, role: nextRole as any }, { onConflict: "user_id,role" });
+        if (upsertError) throw upsertError;
+
+        const { error: deleteError } = await supabase
+          .from("user_roles")
+          .delete()
+          .eq("user_id", entry.id)
+          .neq("role", nextRole);
+        if (deleteError) throw deleteError;
+      }
+
+      await loadUsers();
+      toast.success("Role changes saved");
+    } catch (error) {
+      console.error("Unable to save roles", error);
+      toast.error("Role update failed. Your previous access has been preserved.");
+    }
   };
   return { users, updateRole, saveRoles };
 };
