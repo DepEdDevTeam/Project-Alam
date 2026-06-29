@@ -9,6 +9,8 @@ import {
   Edit3,
   Eye,
   FileText,
+  Globe2,
+  Lock,
   Loader2,
   Moon,
   RefreshCw,
@@ -554,9 +556,78 @@ const CollectionsPanel = ({ role, datasets, documents, loading, reload, onAudit 
   );
 };
 
+const toggleEntityVisibility = async ({
+  table,
+  entityType,
+  id,
+  name,
+  nextValue,
+  reload,
+  onAudit,
+}: {
+  table: "collections" | "documents";
+  entityType: "dataset" | "document";
+  id: string;
+  name: string;
+  nextValue: boolean;
+  reload: () => Promise<void>;
+  onAudit: () => void;
+}) => {
+  const { error } = await (supabase as any).from(table).update({ is_public: nextValue }).eq("id", id);
+  if (error) throw error;
+  await writeAudit("CONTEXT_UPDATED", entityType, id, name, { action: "visibility_updated", is_public: nextValue });
+  await reload();
+  onAudit();
+};
+
+const VisibilityToggle = ({ publicAccess, canAct, entityLabel, onToggle }: { publicAccess: boolean; canAct: boolean; entityLabel: string; onToggle?: () => Promise<void> }) => {
+  const [saving, setSaving] = useState(false);
+
+  if (!canAct || !onToggle) return <AccessBadge publicAccess={publicAccess} />;
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        setSaving(true);
+        try {
+          await onToggle();
+          toast.success(`${entityLabel} is now ${publicAccess ? "private" : "public"}.`);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Visibility update failed");
+        } finally {
+          setSaving(false);
+        }
+      }}
+      disabled={saving}
+      className={cn(
+        "inline-flex min-w-[112px] items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-xs font-semibold transition",
+        publicAccess
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+          : "border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300",
+      )}
+      aria-label={`Make ${entityLabel} ${publicAccess ? "private" : "public"}`}
+      title={`Click to make this ${entityLabel} ${publicAccess ? "private" : "public"}`}
+    >
+      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : publicAccess ? <Globe2 className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+      {publicAccess ? "Public" : "Private"}
+    </button>
+  );
+};
+
 const DatasetsTable = ({ rows, canAct, reload, onEdit, onAudit }: { rows: CollectionRow[]; canAct: boolean; reload: () => Promise<void>; onEdit: (value: { type: "dataset"; id: string; title: string; context: string }) => void; onAudit: () => void }) => (
-  <DataTable headers={["Name", "Rows", "AI Parsed Context", "Access", ...(canAct ? ["Actions"] : [])]} empty="No datasets yet.">
-    {rows.map((row) => <tr key={row.id} className="h-16 border-b border-border last:border-b-0"><td className="px-4"><div className="font-medium text-foreground">{row.name}</div><div className="text-xs text-muted-foreground">{row.slug}</div></td><td className="px-4 text-center text-foreground">{row.row_count.toLocaleString()}</td><td className="max-w-md px-4 text-sm text-muted-foreground"><p className="line-clamp-2">{row.ai_parsed_context || row.parser_summary || row.description || "No parser summary available"}</p></td><td className="px-4 text-center"><AccessBadge publicAccess={row.is_public} /></td>{canAct && <td className="px-4"><div className="flex justify-center gap-1"><IconButton label="Edit context" onClick={() => onEdit({ type: "dataset", id: row.id, title: row.name, context: row.ai_parsed_context || row.parser_summary || "" })}><Edit3 className="h-4 w-4" /></IconButton><IconButton label="Re-embed for semantic search" onClick={async () => { toast.info("Embedding rows…"); try { const embedded = await embedEntityPaginated("dataset", row.id); toast.success(`Embedded ${embedded} rows`); await writeAudit("CONTEXT_UPDATED" as AuditEventType, "dataset", row.id, row.name, { action: "re_embed", embedded }); onAudit(); } catch (e) { toast.error(e instanceof Error ? e.message : "Embedding failed"); } }}><Sparkles className="h-4 w-4" /></IconButton><IconButton label="Refresh status" onClick={async () => { await writeAudit("DATASET_SYNC_STATUS_REFRESHED", "dataset", row.id, row.name); onAudit(); toast.success("Dataset status refreshed"); }}><RefreshCw className="h-4 w-4" /></IconButton><IconButton label="Delete dataset" onClick={async () => { if (!window.confirm(`Delete dataset "${row.name}"? This permanently removes all its rows and cannot be undone.`)) return; const { error } = await (supabase as any).from("collections").delete().eq("id", row.id); if (error) { toast.error(error.message); return; } await writeAudit("DATASET_DELETED", "dataset", row.id, row.name); toast.success("Dataset deleted"); await reload(); onAudit(); }}><Trash2 className="h-4 w-4" /></IconButton></div></td>}</tr>)}
+  <DataTable headers={["Name", "Rows", "AI Parsed Context", "Visibility", ...(canAct ? ["Actions"] : [])]} empty="No datasets yet.">
+    {rows.map((row) => (
+      <tr key={row.id} className="h-16 border-b border-border last:border-b-0">
+        <td className="px-4"><div className="font-medium text-foreground">{row.name}</div><div className="text-xs text-muted-foreground">{row.slug}</div></td>
+        <td className="px-4 text-center text-foreground">{row.row_count.toLocaleString()}</td>
+        <td className="max-w-md px-4 text-sm text-muted-foreground"><p className="line-clamp-2">{row.ai_parsed_context || row.parser_summary || row.description || "No parser summary available"}</p></td>
+        <td className="px-4 text-center">
+          <VisibilityToggle publicAccess={row.is_public} canAct={canAct} entityLabel={row.name} onToggle={() => toggleEntityVisibility({ table: "collections", entityType: "dataset", id: row.id, name: row.name, nextValue: !row.is_public, reload, onAudit })} />
+        </td>
+        {canAct && <td className="px-4"><div className="flex justify-center gap-1"><IconButton label="Edit context" onClick={() => onEdit({ type: "dataset", id: row.id, title: row.name, context: row.ai_parsed_context || row.parser_summary || "" })}><Edit3 className="h-4 w-4" /></IconButton><IconButton label="Re-embed for semantic search" onClick={async () => { toast.info("Embedding rows..."); try { const embedded = await embedEntityPaginated("dataset", row.id); toast.success(`Embedded ${embedded} rows`); await writeAudit("CONTEXT_UPDATED" as AuditEventType, "dataset", row.id, row.name, { action: "re_embed", embedded }); onAudit(); } catch (e) { toast.error(e instanceof Error ? e.message : "Embedding failed"); } }}><Sparkles className="h-4 w-4" /></IconButton><IconButton label="Refresh status" onClick={async () => { await writeAudit("DATASET_SYNC_STATUS_REFRESHED", "dataset", row.id, row.name); onAudit(); toast.success("Dataset status refreshed"); }}><RefreshCw className="h-4 w-4" /></IconButton><IconButton label="Delete dataset" onClick={async () => { if (!window.confirm(`Delete dataset "${row.name}"? This permanently removes all its rows and cannot be undone.`)) return; const { error } = await (supabase as any).from("collections").delete().eq("id", row.id); if (error) { toast.error(error.message); return; } await writeAudit("DATASET_DELETED", "dataset", row.id, row.name); toast.success("Dataset deleted"); await reload(); onAudit(); }}><Trash2 className="h-4 w-4" /></IconButton></div></td>}
+      </tr>
+    ))}
   </DataTable>
 );
 
@@ -653,7 +724,18 @@ const UploadProgressPanel = ({ progress, onDismiss }: { progress: UploadProgress
 
 const DocumentsTable = ({ rows, canAct, reload, onEdit, onPreview, onAudit }: { rows: DocumentRow[]; canAct: boolean; reload: () => Promise<void>; onEdit: (value: { type: "document"; id: string; title: string; context: string }) => void; onPreview: (doc: DocumentRow) => void; onAudit: () => void }) => (
   <DataTable headers={["Title + filename", "Type", "Pages", "Chunks", "Visibility", "Actions"]} empty="No documents yet.">
-    {rows.map((row) => <tr key={row.id} className="h-16 border-b border-border last:border-b-0"><td className="px-4"><div className="font-medium text-foreground">{row.title}</div><div className="text-xs text-muted-foreground">{row.source_filename}</div></td><td className="px-4 text-center"><span className="rounded-md bg-secondary px-2 py-1 text-xs font-semibold uppercase text-secondary-foreground">{row.doc_type}</span></td><td className="px-4 text-center text-foreground">{row.total_pages}</td><td className="px-4 text-center text-foreground">{row.chunk_count ?? 0}</td><td className="px-4 text-center"><AccessBadge publicAccess={row.is_public} /></td><td className="px-4"><div className="flex justify-center gap-1"><IconButton label="View document" onClick={() => onPreview(row)}><Eye className="h-4 w-4" /></IconButton>{canAct && <><IconButton label="Edit context" onClick={() => onEdit({ type: "document", id: row.id, title: row.title, context: row.ai_parsed_context || row.parser_summary || "" })}><Edit3 className="h-4 w-4" /></IconButton><IconButton label="Re-embed for semantic search" onClick={async () => { toast.info("Embedding chunks…"); try { const embedded = await embedEntityPaginated("document", row.id); toast.success(`Embedded ${embedded} chunks`); await writeAudit("CONTEXT_UPDATED" as AuditEventType, "document", row.id, row.title, { action: "re_embed", embedded }); onAudit(); } catch (e) { toast.error(e instanceof Error ? e.message : "Embedding failed"); } }}><Sparkles className="h-4 w-4" /></IconButton><IconButton label="Download document" onClick={() => downloadDocument(row, onAudit)}><Download className="h-4 w-4" /></IconButton><IconButton label="Refresh status" onClick={async () => { await writeAudit("DOCUMENT_SYNC_STATUS_REFRESHED", "document", row.id, row.title); onAudit(); toast.success("Document status refreshed"); }}><RefreshCw className="h-4 w-4" /></IconButton><IconButton label="Delete document" onClick={async () => { if (!window.confirm(`Delete document "${row.title}"? This permanently removes all its chunks and cannot be undone.`)) return; const { error } = await (supabase as any).from("documents").delete().eq("id", row.id); if (error) { toast.error(error.message); return; } await writeAudit("DOCUMENT_DELETED", "document", row.id, row.title); toast.success("Document deleted"); await reload(); onAudit(); }}><Trash2 className="h-4 w-4" /></IconButton></>}</div></td></tr>)}
+    {rows.map((row) => (
+      <tr key={row.id} className="h-16 border-b border-border last:border-b-0">
+        <td className="px-4"><div className="font-medium text-foreground">{row.title}</div><div className="text-xs text-muted-foreground">{row.source_filename}</div></td>
+        <td className="px-4 text-center"><span className="rounded-md bg-secondary px-2 py-1 text-xs font-semibold uppercase text-secondary-foreground">{row.doc_type}</span></td>
+        <td className="px-4 text-center text-foreground">{row.total_pages}</td>
+        <td className="px-4 text-center text-foreground">{row.chunk_count ?? 0}</td>
+        <td className="px-4 text-center">
+          <VisibilityToggle publicAccess={row.is_public} canAct={canAct} entityLabel={row.title} onToggle={() => toggleEntityVisibility({ table: "documents", entityType: "document", id: row.id, name: row.title, nextValue: !row.is_public, reload, onAudit })} />
+        </td>
+        <td className="px-4"><div className="flex justify-center gap-1"><IconButton label="View document" onClick={() => onPreview(row)}><Eye className="h-4 w-4" /></IconButton>{canAct && <><IconButton label="Edit context" onClick={() => onEdit({ type: "document", id: row.id, title: row.title, context: row.ai_parsed_context || row.parser_summary || "" })}><Edit3 className="h-4 w-4" /></IconButton><IconButton label="Re-embed for semantic search" onClick={async () => { toast.info("Embedding chunks..."); try { const embedded = await embedEntityPaginated("document", row.id); toast.success(`Embedded ${embedded} chunks`); await writeAudit("CONTEXT_UPDATED" as AuditEventType, "document", row.id, row.title, { action: "re_embed", embedded }); onAudit(); } catch (e) { toast.error(e instanceof Error ? e.message : "Embedding failed"); } }}><Sparkles className="h-4 w-4" /></IconButton><IconButton label="Download document" onClick={() => downloadDocument(row, onAudit)}><Download className="h-4 w-4" /></IconButton><IconButton label="Refresh status" onClick={async () => { await writeAudit("DOCUMENT_SYNC_STATUS_REFRESHED", "document", row.id, row.title); onAudit(); toast.success("Document status refreshed"); }}><RefreshCw className="h-4 w-4" /></IconButton><IconButton label="Delete document" onClick={async () => { if (!window.confirm(`Delete document "${row.title}"? This permanently removes all its chunks and cannot be undone.`)) return; const { error } = await (supabase as any).from("documents").delete().eq("id", row.id); if (error) { toast.error(error.message); return; } await writeAudit("DOCUMENT_DELETED", "document", row.id, row.title); toast.success("Document deleted"); await reload(); onAudit(); }}><Trash2 className="h-4 w-4" /></IconButton></>}</div></td>
+      </tr>
+    ))}
   </DataTable>
 );
 

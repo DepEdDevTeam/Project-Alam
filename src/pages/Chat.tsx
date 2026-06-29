@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, forwardRef } from "r
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Send, Square, Copy, Sparkles, Database, Loader2, LogIn, Plus, Pin, Trash2, Search, Menu, MessageSquare, ChevronLeft, LogOut, Shield, User as UserIcon, FileText, Quote, Download, Moon, Sun, BadgeCheck, BookOpenCheck, AlertTriangle, Info, Mic, MicOff, PhoneOff, Volume2,
+  Send, Square, Copy, Sparkles, Database, Loader2, LogIn, Plus, Pin, Trash2, Search, Menu, MessageSquare, ChevronLeft, LogOut, Shield, User as UserIcon, FileText, Quote, Download, Moon, Sun, BadgeCheck, BookOpenCheck, AlertTriangle, Info, Mic, MicOff, PhoneOff, Volume2, PanelLeftOpen,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -117,6 +117,11 @@ const Chat = () => {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [documents, setDocuments] = useState<DocItem[]>([]);
   const [search, setSearch] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const saved = localStorage.getItem("alam_chat_sidebar_open");
+    return saved === null ? true : saved === "true";
+  });
   const [scope, setScope] = useState<ChatScope>(() => {
     if (typeof window === "undefined") return { type: "all" };
     try {
@@ -156,15 +161,23 @@ const Chat = () => {
     });
   };
 
-  // Load collections + documents (public to all)
   useEffect(() => {
-    supabase.from("collections").select("id,name,slug,row_count,description").eq("is_public", true).then(({ data }) => {
-      setCollections(data ?? []);
-    });
-    supabase.from("documents").select("id,title,doc_type,total_pages,storage_path,source_filename").eq("is_public", true).order("created_at", { ascending: false }).then(({ data }) => {
-      setDocuments(data ?? []);
-    });
-  }, []);
+    try {
+      localStorage.setItem("alam_chat_sidebar_open", String(sidebarOpen));
+    } catch {}
+  }, [sidebarOpen]);
+
+  // Load collections + documents (admins can also browse private sources)
+  useEffect(() => {
+    let collectionsQuery = supabase.from("collections").select("id,name,slug,row_count,description");
+    let documentsQuery = supabase.from("documents").select("id,title,doc_type,total_pages,storage_path,source_filename").order("created_at", { ascending: false });
+    if (!isAdmin) {
+      collectionsQuery = collectionsQuery.eq("is_public", true);
+      documentsQuery = documentsQuery.eq("is_public", true);
+    }
+    collectionsQuery.then(({ data }) => setCollections(data ?? []));
+    documentsQuery.then(({ data }) => setDocuments(data ?? []));
+  }, [isAdmin]);
 
   useEffect(() => {
     if (scope.type === "dataset" && collections.length > 0 && !collections.some((c) => c.slug === scope.slug)) {
@@ -668,7 +681,9 @@ const Chat = () => {
   return (
     <div className="h-screen flex chat-shell-bg overflow-hidden">
       {/* Desktop sidebar */}
-      <div className="hidden md:block">{Sidebar}</div>
+      <div className={cn("hidden md:block overflow-hidden border-r border-sidebar-border/60 bg-sidebar transition-[width] duration-300 ease-out", sidebarOpen ? "w-72" : "w-0")}>
+        {Sidebar}
+      </div>
 
       {/* Mobile sidebar */}
       <div className="md:hidden absolute top-3 left-3 z-30">
@@ -685,6 +700,17 @@ const Chat = () => {
         <header className="deped-header-shell h-16 backdrop-blur-xl flex items-center justify-between px-4 md:px-6 shadow-sm">
           <div className="flex items-center gap-2 md:hidden pl-12"><Logo variant="light" /></div>
           <div className="hidden md:flex items-center gap-4">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => setSidebarOpen((prev) => !prev)}
+              aria-label={sidebarOpen ? "Collapse conversations sidebar" : "Expand conversations sidebar"}
+              title={sidebarOpen ? "Collapse conversations sidebar" : "Expand conversations sidebar"}
+              className="text-white/85 hover:bg-white/10 hover:text-white"
+            >
+              <PanelLeftOpen className={cn("h-4 w-4 transition-transform duration-200", sidebarOpen && "rotate-180")} />
+            </Button>
             <Link to="/" className="text-sm text-white/80 hover:text-white inline-flex items-center gap-1">
               <ChevronLeft className="h-4 w-4" /> Home
             </Link>

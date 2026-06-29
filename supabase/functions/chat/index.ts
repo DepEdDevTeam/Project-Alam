@@ -9,12 +9,32 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
 const numericSummaryCache = new Map<string, { value: any; expiresAt: number }>();
+const TOPIC_TERM_STOP_WORDS = new Set([
+  "the", "and", "for", "with", "this", "that", "from", "into", "about", "what", "which", "when", "where", "why",
+  "how", "your", "their", "there", "here", "have", "has", "had", "will", "would", "could", "should", "show", "give",
+  "list", "find", "tell", "explain", "answer", "please", "need", "want", "using", "use", "only", "data", "dataset",
+  "datasets", "document", "documents", "file", "files", "source", "sources", "records", "record", "rows", "row",
+  "about", "lang", "yung", "mga", "ang", "ng", "nang", "para", "saan", "ano", "alin", "paano", "ilan", "lahat",
+  "showing", "summary", "compare", "comparison", "trend", "trends", "audit", "analyze", "analysis",
+]);
 
 type CitationFormat = "short" | "detailed";
 type ChatScope =
   | { type: "all" }
   | { type: "dataset"; slug: string }
   | { type: "documents" };
+type ViewerAccess = {
+  userId: string | null;
+  isAdmin: boolean;
+  canSeePrivate: boolean;
+};
+type QueryAnalysis = {
+  intent: string;
+  sub_questions: string[];
+  entities: string[];
+  metrics: string[];
+  expanded_query: string;
+};
 
 function buildSystemPrompt(citationFormat: CitationFormat): string {
   const detailedDocBullet = `   - 📄 Document: *<Document Title>* (<doc_type>) — pages: P1, P2, P3
@@ -57,6 +77,7 @@ ${docBullet}
    - Do NOT add any other prose after the Sources block.${detailedExtraRule}
 4. **Language matching — STRICT**: Match the language of the user's latest message when confident. Support English, Filipino/Tagalog, Taglish, Cebuano/Bisaya, Waray, Ilocano, Hiligaynon/Ilonggo, Kapampangan, Bikol, Pangasinan, and best-effort Tausug/Maranao/Maguindanaon. If dialect confidence is low, answer in Filipino/Taglish. Explicit language instructions always win.
 4b. **Preserve official terms**: Keep dataset names, document titles, school names, region/division names, source titles, and technical field/column names exactly as provided. Do not translate identifiers such as school_id, region, division, school_name, grade columns, dataset slugs, or document titles; only localize the surrounding explanation.
+4c. **Conversation continuity**: Treat earlier messages in the current chat history as available context. If the user asks whether you remember the last conversation and prior turns are present in this same chat, answer that you can continue from what was already discussed in this thread. Only say you cannot remember past conversations when the user is asking about a different session or a chat whose messages are not present here.
 5. **Tables**: When listing 3+ records, render as a markdown table. Render ALL rows provided in DATASET CONTEXT — do NOT truncate unless the user asked for fewer. Max 12 columns; wrap text in cells. For ranked/sorted requests ("top 10", "highest", "lowest", "best", "worst"), sort the table accordingly before rendering.
 6. **Inline document references**: When quoting or paraphrasing a document passage, add an inline marker like \`(p.12)\` or \`(pp.4–6)\` right after the claim.
 7. **Be concise and visual**. Lead with a direct 1–2 sentence answer. For comparison, ranking, trend, distribution, share, or multi-category numeric questions, ALWAYS include a chart first, followed by at most one compact table when exact values help.
@@ -126,13 +147,7 @@ ${shouldAutoChart(latestUserMessage) ? "- This question is visualizable. You MUS
 
 // Lightweight query analyzer — decomposes complex questions so retrieval is more precise.
 // Returns null on failure so we never block the main flow.
-async function analyzeQuestion(question: string, routerModel: string): Promise<{
-  intent: string;
-  sub_questions: string[];
-  entities: string[];
-  metrics: string[];
-  expanded_query: string;
-} | null> {
+async function analyzeQuestion(question: string, routerModel: string): Promise<QueryAnalysis | null> {
   try {
     const r = await callAI(routerModel, [
       { role: "system", content: "You are a query analyzer for a DepEd (Philippines) education data assistant. Given a user question in English, Filipino/Taglish, or another Philippine language, output a compact JSON object that helps a retrieval system find relevant rows and document passages. Reply with ONLY a JSON object." },
@@ -166,6 +181,61 @@ async function callAI(model: string, messages: any[], stream = false, tools?: an
 
 function isAggregationIntent(text: string): boolean {
   return /\b(how many|how much|total|totals|sum|count|average|avg|mean|median|max|min|maximum|minimum|compare|comparison|difference|change|increase|decrease|trend|ilan|kabuuan|kabuuang|ikumpara|kumpara|pagkakaiba|pagbabago|pagtaas|pagbaba|lahat(?:\s+ng)?|buo|buong(?:\s+listahan)?|complete(?:\s+list)?|kompleto|everything|every|entire|each|per\s+(?:region|province|division|district|municipality|school|barangay)|kada\s+(?:rehiyon|lalawigan|division|district|bayan))\b/.test(text);
+}
+
+function normalizeTopicText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function buildTopicTerms(question: string, analysis: QueryAnalysis | null): string[] {
+  const raw = [question, analysis?.expanded_query ?? "", analysis?.entities.join(" ") ?? "", analysis?.metrics.join(" ") ?? ""]
+    .filter(Boolean)
+    .join(" ");
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const token of normalizeTopicText(raw).split(" ")) {
+    if (token.length < 3) continue;
+    if (/^\d+$/.test(token)) continue;
+    if (TOPIC_TERM_STOP_WORDS.has(token)) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    ordered.push(token);
+  }
+  return ordered.slice(0, 24);
+}
+
+function scoreTopicRelevance(text: string, terms: string[]): number {
+  if (!text || terms.length === 0) return 0;
+  const haystack = ` ${normalizeTopicText(text)} `;
+  let score = 0;
+  for (const term of terms) {
+    if (haystack.includes(` ${term} `)) score += term.length >= 7 ? 3 : 2;
+    else if (haystack.includes(term)) score += 1;
+  }
+  return score;
+}
+
+function isLikelyFollowUpQuestion(text: string): boolean {
+  const normalized = normalizeTopicText(text);
+  if (normalized.length <= 80 && /\b(this|that|those|these|it|they|them|same|continue|also|include|add|use both|broaden|expand|again)\b/.test(normalized)) return true;
+  if (normalized.length <= 60 && /\b(eto|iyan|yan|yun|ito|same|dagdag|isama|gamitin|pareho|ulit|balikan)\b/.test(normalized)) return true;
+  return false;
+}
+
+async function resolveViewerAccess(supabase: any, authHeader: string | null): Promise<ViewerAccess> {
+  let userId: string | null = null;
+  if (authHeader?.startsWith("Bearer ")) {
+    const { data } = await supabase.auth.getUser(authHeader.slice(7));
+    userId = data.user?.id ?? null;
+  }
+  if (!userId) return { userId: null, isAdmin: false, canSeePrivate: false };
+
+  const { data: roles } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+  const isAdmin = ((roles ?? []) as Array<{ role: string }>).some((row) => row.role === "admin" || row.role === "super_admin");
+  return { userId, isAdmin, canSeePrivate: isAdmin };
 }
 
 async function getNumericSummary(supabase: any, collectionId: string, sheet: string | null) {
@@ -405,9 +475,10 @@ async function classifyAndRoute(
   userQuestion: string,
   supabase: any,
   fetchLimit: number,
-  userId: string | null,
+  viewer: ViewerAccess,
   routerModel: string,
   queryEmbedding: number[] | null,
+  topicTerms: string[],
   stickyCollectionSlugs: string[] = [],
   scope: ChatScope = { type: "all" },
 ): Promise<{ collections: any[]; rows: { collection: string; collection_id: string; name: string; total: number; data: any[]; ids: string[]; sheet: string | null; numericSummary: any; groupedSummary: any }[] }> {
@@ -415,7 +486,7 @@ async function classifyAndRoute(
   if (scope.type === "documents") return { collections: [], rows: [] };
 
   let colQuery = supabase.from("collections").select("id,name,slug,description,parser_summary,ai_parsed_context,row_count,is_public");
-  if (!userId) colQuery = colQuery.eq("is_public", true);
+  if (!viewer.canSeePrivate) colQuery = colQuery.eq("is_public", true);
   if (scope.type === "dataset") colQuery = colQuery.eq("slug", scope.slug);
   const { data: cols } = await colQuery;
   if (!cols || cols.length === 0) return { collections: [], rows: [] };
@@ -446,19 +517,43 @@ async function classifyAndRoute(
     chosen = [...explicitlyMentioned, ...chosen.filter((slug) => !explicitlyMentioned.includes(slug))];
   }
 
-  // Sticky bias: always include previously-used collections from the same conversation
-  // so follow-ups like "include the school" still target the same dataset.
   if (scope.type === "all") {
     for (const sticky of stickyCollectionSlugs) {
-      if (sticky && !chosen.includes(sticky)) chosen.push(sticky);
+      const stickyCollection = cols.find((c: any) => c.slug === sticky);
+      if (!stickyCollection) continue;
+      if (scoreTopicRelevance(`${stickyCollection.name} ${stickyCollection.slug} ${stickyCollection.parser_summary || stickyCollection.ai_parsed_context || stickyCollection.description || ""}`, topicTerms) <= 0) continue;
+      if (!chosen.includes(sticky)) chosen.push(sticky);
     }
   }
-  // Fallback: if routing fails, use only the largest collection to limit unrelated context.
-  if (chosen.length === 0) {
-    chosen = [...cols].sort((a: any, b: any) => (b.row_count ?? 0) - (a.row_count ?? 0)).slice(0, 1).map((c: any) => c.slug);
+
+  const scoredCollections = cols
+    .map((c: any) => ({
+      ...c,
+      topicScore: scoreTopicRelevance(
+        `${c.name} ${c.slug} ${c.parser_summary || c.ai_parsed_context || c.description || ""}`,
+        topicTerms,
+      ),
+    }))
+    .sort((a: any, b: any) => (b.topicScore - a.topicScore) || ((b.row_count ?? 0) - (a.row_count ?? 0)));
+
+  for (const candidate of scoredCollections.slice(0, 4)) {
+    if (candidate.topicScore <= 0) continue;
+    if (!chosen.includes(candidate.slug)) chosen.push(candidate.slug);
   }
-  // Cap to keep prompt size in check
-  chosen = chosen.slice(0, 3);
+
+  if (chosen.length === 0) {
+    const bestTopicMatch = scoredCollections.find((c: any) => c.topicScore > 0);
+    chosen = bestTopicMatch
+      ? [bestTopicMatch.slug]
+      : [...cols].sort((a: any, b: any) => (b.row_count ?? 0) - (a.row_count ?? 0)).slice(0, 1).map((c: any) => c.slug);
+  }
+
+  chosen = chosen
+    .map((slug) => scoredCollections.find((c: any) => c.slug === slug))
+    .filter(Boolean)
+    .sort((a: any, b: any) => (b.topicScore - a.topicScore) || ((b.row_count ?? 0) - (a.row_count ?? 0)))
+    .slice(0, 4)
+    .map((c: any) => c.slug);
 
   const selectedCols = cols.filter((c: any) => chosen.includes(c.slug));
 
@@ -607,7 +702,7 @@ function extractSchoolIds(text: string): string[] {
 async function lookupSchoolIds(
   ids: string[],
   supabase: any,
-  userId: string | null,
+  viewer: ViewerAccess,
   scope: ChatScope = { type: "all" },
 ): Promise<{ schoolMaster: any[]; datasetMatches: { collection_id: string; collection_name: string; collection_slug: string; rows: any[] }[] }> {
   if (ids.length === 0) return { schoolMaster: [], datasetMatches: [] };
@@ -620,7 +715,7 @@ async function lookupSchoolIds(
 
   // 2) dataset_rows — JSONB match on data->>'school_id'
   let colQ = supabase.from("collections").select("id,name,slug,is_public");
-  if (!userId) colQ = colQ.eq("is_public", true);
+  if (!viewer.canSeePrivate) colQ = colQ.eq("is_public", true);
   if (scope.type === "documents") return { schoolMaster: master ?? [], datasetMatches: [] };
   if (scope.type === "dataset") colQ = colQ.eq("slug", scope.slug);
   const { data: cols } = await colQ;
@@ -659,7 +754,7 @@ type DocChunk = {
 };
 type DocResult = { docId: string; docTitle: string; docType: string; totalPages: number; chunks: DocChunk[] };
 
-async function loadSourceCatalog(supabase: any, userId: string | null) {
+async function loadSourceCatalog(supabase: any, viewer: ViewerAccess) {
   let collectionsQuery = supabase
     .from("collections")
     .select("name,row_count,description,is_public")
@@ -668,7 +763,7 @@ async function loadSourceCatalog(supabase: any, userId: string | null) {
     .from("documents")
     .select("title,doc_type,total_pages,is_public")
     .order("title", { ascending: true });
-  if (!userId) {
+  if (!viewer.canSeePrivate) {
     collectionsQuery = collectionsQuery.eq("is_public", true);
     documentsQuery = documentsQuery.eq("is_public", true);
   }
@@ -680,15 +775,16 @@ async function loadSourceCatalog(supabase: any, userId: string | null) {
 async function searchDocuments(
   userQuestion: string,
   supabase: any,
-  userId: string | null,
+  viewer: ViewerAccess,
   queryEmbedding: number[] | null,
+  topicTerms: string[],
   scope: ChatScope = { type: "all" },
 ): Promise<DocResult[]> {
   if (scope.type === "dataset") return [];
   let docsQuery = supabase
     .from("documents")
     .select("id,title,doc_type,total_pages,parser_summary,ai_parsed_context,is_public");
-  if (!userId) docsQuery = docsQuery.eq("is_public", true);
+  if (!viewer.canSeePrivate) docsQuery = docsQuery.eq("is_public", true);
   const { data: docs } = await docsQuery;
   if (!docs || docs.length === 0) return [];
 
@@ -698,7 +794,17 @@ async function searchDocuments(
     if (!t) return false;
     return t.split(/\s+/).some((w: string) => w.length >= 4 && qLower.includes(w));
   });
-  const targetDocs = titleMatched.length > 0 ? titleMatched : docs;
+  const scoredDocs = docs
+    .map((d: any) => ({
+      ...d,
+      topicScore: scoreTopicRelevance(
+        `${d.title} ${d.doc_type || ""} ${d.parser_summary || d.ai_parsed_context || ""}`,
+        topicTerms,
+      ),
+    }))
+    .sort((a: any, b: any) => (b.topicScore - a.topicScore) || ((b.total_pages ?? 0) - (a.total_pages ?? 0)));
+  const semanticMatches = scoredDocs.filter((d: any) => d.topicScore > 0).slice(0, 4);
+  const targetDocs = titleMatched.length > 0 ? titleMatched : semanticMatches.length > 0 ? semanticMatches : docs;
   const targetIds: string[] = targetDocs.map((d: any) => d.id);
 
   const tsQuery = userQuestion.replace(/[^\w\s]/g, " ").split(/\s+/).filter((t) => t.length > 2).slice(0, 8).join(" | ");
@@ -866,13 +972,10 @@ Deno.serve(async (req) => {
     const lastUser = [...messages].reverse().find((m: any) => m.role === "user");
     const userQ = lastUser?.content ?? "";
 
-    // Identify user from JWT (optional)
-    let userId: string | null = null;
+    // Identify user + access level from JWT (optional)
     const auth = req.headers.get("Authorization");
-    if (auth?.startsWith("Bearer ")) {
-      const { data } = await supabase.auth.getUser(auth.slice(7));
-      userId = data.user?.id ?? null;
-    }
+    const viewer = await resolveViewerAccess(supabase, auth);
+    const userId = viewer.userId;
 
     // Rate limiting
     const tier = userId ? "user" : "guest";
@@ -915,16 +1018,16 @@ Deno.serve(async (req) => {
     const t0 = Date.now();
     const casualMessage = isCasualMessage(userQ);
 
-    // Build a context-aware retrieval query by combining recent prior user turns
-    // with the latest one. This prevents short follow-ups like "include the school"
-    // from losing the previously-discussed dataset (e.g. Region VII STRIDE).
-    const priorUserTurns = messages
-      .slice(0, -1)
-      .filter((m: any) => m.role === "user")
-      .slice(-3)
-      .map((m: any) => String(m.content ?? ""));
-    const lastAssistant = [...messages].reverse().find((m: any) => m.role === "assistant");
-    const assistantHint = lastAssistant
+    const followUpQuestion = !casualMessage && isLikelyFollowUpQuestion(userQ);
+    const priorUserTurns = followUpQuestion
+      ? messages
+          .slice(0, -1)
+          .filter((m: any) => m.role === "user")
+          .slice(-2)
+          .map((m: any) => String(m.content ?? ""))
+      : [];
+    const lastAssistant = followUpQuestion ? [...messages].reverse().find((m: any) => m.role === "assistant") : null;
+    const assistantHint = followUpQuestion && lastAssistant
       ? String(lastAssistant.content ?? "").slice(0, 500)
       : "";
     const retrievalQuery = casualMessage
@@ -941,7 +1044,7 @@ Deno.serve(async (req) => {
     // Sticky collections: pull the slugs used in the most recent assistant
     // citations for this conversation so follow-ups stay on the same dataset.
     let stickyCollectionSlugs: string[] = [];
-    if (conversation_id) {
+    if (conversation_id && followUpQuestion) {
       const { data: prevMsgs } = await supabase
         .from("messages")
         .select("citations,role,created_at")
@@ -971,27 +1074,28 @@ Deno.serve(async (req) => {
     const sourceCatalogQuestion = !casualMessage && isSourceCatalogQuestion(userQ);
     const directYearComparison = isDirectYearComparison(userQ);
     const aggregationFastPath = isAggregationIntent(userQ);
-    const analysis = casualMessage || sourceCatalogQuestion || directYearComparison || aggregationFastPath ? null : await analyzeQuestion(retrievalQuery, routerModel);
+    const analysis: QueryAnalysis | null = casualMessage || sourceCatalogQuestion || directYearComparison || aggregationFastPath ? null : await analyzeQuestion(retrievalQuery, routerModel);
     const enrichedRetrievalQuery = analysis
       ? [retrievalQuery, analysis.expanded_query, analysis.entities.join(" "), analysis.metrics.join(" "), analysis.sub_questions.join(" ")].filter(Boolean).join("\n")
       : retrievalQuery;
+    const topicTerms = buildTopicTerms(userQ, analysis);
     // One embedding request per question. The previous implementation embedded
     // both the raw and enriched queries, adding latency without improving routing.
     const enrichedEmbedding = casualMessage || sourceCatalogQuestion || directYearComparison || aggregationFastPath ? null : await embedQuery(enrichedRetrievalQuery);
     const shouldSearchDocuments = !casualMessage && (scope.type === "documents" || (scope.type === "all" && isDocumentQuestion(userQ)));
-    const sourceCatalog = sourceCatalogQuestion ? await loadSourceCatalog(supabase, userId) : null;
+    const sourceCatalog = sourceCatalogQuestion ? await loadSourceCatalog(supabase, viewer) : null;
 
     // Route + fetch dataset context (collections + schools + documents + direct school_id lookup, in parallel)
     const schoolIdCandidates = extractSchoolIds(retrievalQuery);
     const [{ collections, rows }, schoolRows, rawDocResults, idLookup] = await Promise.all([
       casualMessage || sourceCatalogQuestion
         ? Promise.resolve({ collections: [], rows: [] })
-        : classifyAndRoute(enrichedRetrievalQuery, supabase, fetchLimit, userId, routerModel, enrichedEmbedding, stickyCollectionSlugs, scope),
+        : classifyAndRoute(enrichedRetrievalQuery, supabase, fetchLimit, viewer, routerModel, enrichedEmbedding, topicTerms, stickyCollectionSlugs, scope),
       casualMessage || scope.type === "documents" || sourceCatalogQuestion ? Promise.resolve([]) : searchSchools(enrichedRetrievalQuery, supabase, fetchLimit),
       shouldSearchDocuments && !sourceCatalogQuestion
-        ? searchDocuments(enrichedRetrievalQuery, supabase, userId, enrichedEmbedding, scope)
+        ? searchDocuments(enrichedRetrievalQuery, supabase, viewer, enrichedEmbedding, topicTerms, scope)
         : Promise.resolve([]),
-      casualMessage ? Promise.resolve({ schoolMaster: [], datasetMatches: [] }) : lookupSchoolIds(schoolIdCandidates, supabase, userId, scope),
+      casualMessage ? Promise.resolve({ schoolMaster: [], datasetMatches: [] }) : lookupSchoolIds(schoolIdCandidates, supabase, viewer, scope),
     ]);
 
 
