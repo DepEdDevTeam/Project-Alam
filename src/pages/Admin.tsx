@@ -246,7 +246,7 @@ const AdminDashboardPage = () => {
         <PrimaryNavigation value={contentTab} onChange={setContentTab} showSettings={superAdmin} />
         {contentTab === "collections" ? <CollectionsPanel role={role} {...collections} onAudit={reloadAudit} /> : contentTab === "settings" && superAdmin ? <SettingsPanel onAudit={reloadAudit} /> : (
           <>
-            <section className="mt-6" aria-labelledby="admin-dashboard-title"><h1 id="admin-dashboard-title" className="text-4xl font-semibold tracking-normal text-foreground md:text-5xl">Admin Dashboard</h1><div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{kpis.map((metric) => <KpiCard key={metric.label} label={metric.label} value={metric.value} />)}</div><div className="mt-4 flex justify-center"><InsightCard label="Frequently asked topic" value={stats.frequentlyAskedTopic} /></div></section>
+            <section className="mt-6" aria-labelledby="admin-dashboard-title"><h1 id="admin-dashboard-title" className="text-4xl font-semibold tracking-normal text-foreground md:text-5xl">Admin Dashboard</h1><div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{kpis.map((metric) => <KpiCard key={metric.label} label={metric.label} value={metric.value} />)}</div><div className="mt-4 flex justify-center"><InsightCard label="Frequently asked topic" value={stats.frequentlyAskedTopic} /></div><div className="mt-5"><RoleCapabilitiesCard currentRole={role} /></div></section>
             <section className="mt-5 border-t border-border pt-4" aria-label="Admin content">
               <Tabs<AdminContentTab> value={contentTab} onChange={setContentTab} items={[...(superAdmin ? [{ value: "users" as AdminContentTab, label: "User Management", icon: Users }] : []), { value: "audit" as AdminContentTab, label: "Audit Log", icon: ClipboardList }]} />
               <div className="mt-2">{contentTab === "users" && superAdmin ? <UserManagement users={users} onRoleChange={updateRole} onSave={saveRoles} /> : <AuditLogTable rows={auditLogs} />}</div>
@@ -920,6 +920,52 @@ const IconButton = ({ label, onClick, children }: { label: string; onClick: () =
 const UserManagement = ({ users, onRoleChange, onSave }: { users: DashboardUser[]; onRoleChange: (id: string, role: Role) => void; onSave: () => void }) => <div className="space-y-4"><div className="space-y-4">{users.map((user) => <UserRow key={user.id} user={user} onRoleChange={onRoleChange} />)}</div><div className="flex justify-end"><Button onClick={onSave} className="min-w-36">Save Changes</Button></div></div>;
 const KpiCard = ({ label, value }: KpiMetric) => <article className={cn("border border-border bg-card p-4 shadow-sm", ADMIN_RADIUS)}><p className="min-h-10 text-base leading-tight text-muted-foreground">{label}</p><p className="mt-1 text-center text-4xl font-medium tracking-normal text-foreground">{value}</p></article>;
 const InsightCard = ({ label, value }: { label: string; value: string }) => <article className={cn("w-full max-w-xl border border-border bg-card p-4 shadow-sm", ADMIN_RADIUS)}><p className="text-base text-muted-foreground">{label}</p><p className="mt-2 text-3xl font-medium leading-tight tracking-normal text-foreground md:text-4xl">{value}</p></article>;
+const RoleCapabilitiesCard = ({ currentRole }: { currentRole: AppRole | null }) => {
+  const rows = [
+    { capability: "Collections and documents", admin: true, superAdmin: true, note: "Upload, curate, edit, re-embed, toggle visibility." },
+    { capability: "Audit log", admin: true, superAdmin: true, note: "Track content and system actions." },
+    { capability: "User Management", admin: false, superAdmin: true, note: "Promote or demote users and assign roles." },
+    { capability: "Settings", admin: false, superAdmin: true, note: "Model access level, prompts, and rate limits." },
+    { capability: "System-level controls", admin: false, superAdmin: true, note: "Admin-only app configuration." },
+  ];
+
+  return (
+    <section className={cn("border border-border bg-card p-4 shadow-sm", ADMIN_RADIUS)} aria-labelledby="role-capabilities-title">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 id="role-capabilities-title" className="text-xl font-semibold text-foreground">Role capabilities</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Current role: <span className="font-semibold text-foreground">{roleLabel(currentRole)}</span>. Super Admin includes everything Admin can do, plus the controls below.</p>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
+          <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+          Permission reference
+        </div>
+      </div>
+      <div className="mt-4 overflow-hidden rounded-xl border border-border">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/40 text-muted-foreground">
+              <th className="px-4 py-3 text-left font-semibold">Capability</th>
+              <th className="px-4 py-3 text-center font-semibold">Admin</th>
+              <th className="px-4 py-3 text-center font-semibold">Super Admin</th>
+              <th className="px-4 py-3 text-left font-semibold">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.capability} className="border-b border-border last:border-b-0">
+                <td className="px-4 py-3 font-medium text-foreground">{row.capability}</td>
+                <td className="px-4 py-3 text-center">{row.admin ? <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">Yes</span> : <span className="inline-flex items-center rounded-full bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">No</span>}</td>
+                <td className="px-4 py-3 text-center">{row.superAdmin ? <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">Yes</span> : <span className="inline-flex items-center rounded-full bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">No</span>}</td>
+                <td className="px-4 py-3 text-sm text-muted-foreground">{row.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+};
 function Tabs<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: { value: T; label: string; icon: typeof Users }[] }) {
   return <div className="inline-flex items-center gap-1 rounded-xl bg-muted p-1" role="tablist">{items.map((item) => { const Icon = item.icon; const selected = value === item.value; return <button key={item.value} type="button" role="tab" aria-selected={selected} onClick={() => onChange(item.value)} className={cn("inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-muted-foreground transition-colors", selected && "bg-card text-foreground shadow-sm")}><Icon className="h-4 w-4" />{item.label}</button>; })}</div>;
 }
